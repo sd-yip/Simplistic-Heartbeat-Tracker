@@ -1,0 +1,6 @@
+
+CREATE TABLE heartbeat (
+  id UUID PRIMARY KEY,
+  source VARCHAR NOT NULL,
+  expiry TIMESTAMPTZ NOT NULL
+);

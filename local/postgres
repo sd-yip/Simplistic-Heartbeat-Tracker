@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -eu
+trap stop_container EXIT
+stop_container() { docker >/dev/null kill "$container"; }
+
+container=$(docker run --rm -dp5432:5432 -ePOSTGRES_PASSWORD=p postgres:15.3-alpine)
+docker logs -f "$container" &
+docker exec "$container" sh -c 'while ! nc -z localhost 5432; do sleep 1; done'
+diesel --database-url postgres://postgres:p@localhost migration run
+kill $!
+
+if [ ${1+x} ]; then
+  "$@"
+else
+  docker exec -it "$container" psql -Upostgres
+fi

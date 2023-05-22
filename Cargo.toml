@@ -7,9 +7,11 @@ edition = "2021"
 actix-web = "4.3.1"
 serde = { version = "1.0.163", features = ["derive"] }
 serde_with = { version = "3.0.0", features = ["time_0_3"] }
-diesel = { version = "2.0.4", features = ["uuid", "time"] }
+diesel = { version = "2.0.4", features = ["uuid", "time", "postgres"] }
 diesel-async = { version = "0.2.2", features = ["deadpool", "postgres"] }
+diesel_migrations = "2.0.0"
 enum-display-derive = "0.1.1"
+dotenv = "0.15.0"
 uuid = { version = "1.3.3", features = ["v4", "serde"] }
 humantime = "2.1.0"
 time = "0.3.21"

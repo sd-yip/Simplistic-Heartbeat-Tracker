@@ -1,19 +1,22 @@
 mod error;
 mod schema;
 
+use std::env;
+use std::error::Error;
 use std::time::Duration;
 
 use crate::error::ApplicationError;
 use crate::error::ApplicationError::{Deadpool, Diesel};
 use actix_web::web::{Data, Json};
 use actix_web::{get, post, App, HttpResponse, HttpServer, Responder};
-use diesel::ExpressionMethods;
 use diesel::QueryDsl;
+use diesel::{Connection, ExpressionMethods, PgConnection};
 use diesel::{Insertable, Queryable};
 use diesel_async::pooled_connection::deadpool::Pool;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::AsyncPgConnection;
 use diesel_async::RunQueryDsl;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use time::format_description::well_known::Iso8601;
@@ -81,11 +84,19 @@ async fn list(pool: Data<Pool<AsyncPgConnection>>) -> Result<impl Responder, App
   Ok(HttpResponse::Ok().json(result))
 }
 
+const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+
 #[actix_web::main]
-async fn main() -> Result<(), std::io::Error> {
-  let server = HttpServer::new(|| {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+  dotenv::dotenv().ok();
+  let port = env::var("PORT").map_or(Ok(8080), |x| x.parse::<u16>())?;
+  let database_url = env::var("DATABASE_URL")?;
+
+  PgConnection::establish(&database_url)?.run_pending_migrations(MIGRATIONS)?;
+
+  let server = HttpServer::new(move || {
     let connection_manager =
-      AsyncDieselConnectionManager::<AsyncPgConnection>::new("postgres://postgres:p@localhost");
+      AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url.clone());
     let pool: Pool<AsyncPgConnection> = Pool::builder(connection_manager).build().unwrap();
 
     App::new()
@@ -93,5 +104,9 @@ async fn main() -> Result<(), std::io::Error> {
       .service(insert)
       .service(list)
   });
-  server.bind(("0.0.0.0", 8080))?.run().await
+  server
+    .bind(("0.0.0.0", port))?
+    .run()
+    .await
+    .map_err(|e| e.into())
 }

@@ -94,13 +94,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
   PgConnection::establish(&database_url)?.run_pending_migrations(MIGRATIONS)?;
 
-  let server = HttpServer::new(move || {
-    let connection_manager =
-      AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url.clone());
-    let pool: Pool<AsyncPgConnection> = Pool::builder(connection_manager).build().unwrap();
+  let connection_manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url);
+  let pool: Pool<AsyncPgConnection> = Pool::builder(connection_manager).build()?;
 
+  let server = HttpServer::new(move || {
     App::new()
-      .app_data(Data::new(pool))
+      .app_data(Data::new(pool.clone()))
       .service(insert)
       .service(list)
   });

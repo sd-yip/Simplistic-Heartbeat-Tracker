@@ -1,8 +1,10 @@
+mod error;
 mod schema;
 
-use std::io::Result;
 use std::time::Duration;
 
+use crate::error::ApplicationError;
+use crate::error::ApplicationError::{Deadpool, Diesel};
 use actix_web::web::{Data, Json};
 use actix_web::{get, post, App, HttpResponse, HttpServer, Responder};
 use diesel::ExpressionMethods;
@@ -17,6 +19,9 @@ use serde_with::{serde_as, DisplayFromStr};
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use uuid::Uuid;
+
+#[macro_use]
+extern crate enum_display_derive;
 
 #[serde_as]
 #[derive(Deserialize)]
@@ -37,9 +42,13 @@ struct HeartbeatEntity {
 }
 
 #[post("/")]
-async fn insert(pool: Data<Pool<AsyncPgConnection>>, request: Json<Heartbeat>) -> impl Responder {
+async fn insert(
+  pool: Data<Pool<AsyncPgConnection>>,
+  request: Json<Heartbeat>,
+) -> Result<impl Responder, ApplicationError> {
   let Json(Heartbeat { source, duration }) = request;
   let duration: Duration = duration.into();
+  let connection = &mut pool.get().await.map_err(Deadpool)?;
 
   diesel::insert_into(schema::heartbeat::table)
     .values(HeartbeatEntity {
@@ -47,29 +56,33 @@ async fn insert(pool: Data<Pool<AsyncPgConnection>>, request: Json<Heartbeat>) -
       source,
       expiry: OffsetDateTime::now_utc() + duration,
     })
-    .execute((&mut pool.get().await.unwrap()).as_mut())
+    .execute(connection.as_mut())
     .await
-    .unwrap();
+    .map_err(Diesel)?;
 
-  HttpResponse::Ok()
-    .content_type("application/json")
-    .body("{}")
+  Ok(
+    HttpResponse::Ok()
+      .content_type("application/json")
+      .body("{}"),
+  )
 }
 
 #[get("/")]
-async fn list(pool: Data<Pool<AsyncPgConnection>>) -> impl Responder {
+async fn list(pool: Data<Pool<AsyncPgConnection>>) -> Result<impl Responder, ApplicationError> {
   use schema::heartbeat::dsl::*;
+  let connection = &mut pool.get().await.map_err(Deadpool)?;
+
   let result = schema::heartbeat::table
     .filter(expiry.gt(OffsetDateTime::now_utc()))
-    .load::<HeartbeatEntity>((&mut pool.get().await.unwrap()).as_mut())
+    .load::<HeartbeatEntity>(connection.as_mut())
     .await
-    .unwrap();
+    .map_err(Diesel)?;
 
-  HttpResponse::Ok().json(result)
+  Ok(HttpResponse::Ok().json(result))
 }
 
 #[actix_web::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), std::io::Error> {
   let server = HttpServer::new(|| {
     let connection_manager =
       AsyncDieselConnectionManager::<AsyncPgConnection>::new("postgres://postgres:p@localhost");
